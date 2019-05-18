@@ -1,0 +1,412 @@
+---
+title: "Reducing_Crime_Lab3"
+author: "James Darmody, Aris Fotkatzikis, Shruti Sinha"
+output:
+  pdf_document: default
+  html_document: default  
+---
+
+# Introduction  
+
+Our research question is to examine what variables within this data set influence our dependent variable (crmrte) and to create a model that will serve as a basis for recommendations to policy makers as to how they can manipulate these predictor variables to seek to minimize crime rates when in office.
+
+# The Initial Data Loading and Cleaning  
+```{r loading and cleaning, results='hide'}
+# Opening Data
+rm(list = ls())
+library(data.table)
+library(effsize)
+library(car)
+library(DataExplorer)
+library(psych)
+library(lmtest)
+library(sandwich)
+library(tidyr)
+library(corrplot)
+library(stargazer)
+
+setwd("/Users/jamesdarmody/W203/Lab/")
+crime = read.table("crime_v2.csv", sep=",", header=TRUE)
+str(crime)
+objects()
+summary(crime)
+```
+
+We have been given 97 observations of 25 variables and a codebook. We begin by taking a look at the data set as a whole, and then at individual variables. Specifically, we look at minimum, maximum, range, and NAs. We also look at the data types of all variables. Overall, we check if anything looks unexpected and needs to be corrected.  
+  An initial look at the data reveals two problems - there are 6 blank rows, and one variable (prbconv), has been encoded as a factor instead of a numeric. We delete the blank rows and convert prbconv to a numeric encoding.
+```{r, results='hide'}
+crime2 <- crime[!is.na(crime$county),]
+crime2$prbconv <- as.numeric(as.character(crime2$prbconv))
+summary(crime2)
+```
+Having identified our dependent variable, we choose to break down the data set into variables that policy makers can manipulate through the means of their office, and those that they have little influence over. The former will serve as the pool from which we will draw predictors, given the initial research question we have defined.  
+We'll go over all the variables and review our understanding of them.
+
+## Dependent Variable: crmrte  
+**crmrte :** As indicated by the codebook, crimes committed per person should be a ratio between 0 to 1. The range of values is as expected. Histogram for crmrte shows significant positive skew. 
+
+## Variables Policymakers can manipulate  
+
+These will be utilized for model specification.  
+  
+**prbarr:** The ratio of arrests to offenses, policymakers can influence this by devoting resources to local police departments. Analyzing prbarr, we see that County 115, which has the highest value for prbarr, also happens to have the minimum crmrte, highest polpc and highest avgsen in data set. While highly coincidental, this does not appear to present any issues. There is nothing unexpected in the other records. We see a significant positive skew in histogram plot of prbarr.   
+**prbconv:** The ratio of convictions to arrests, policymakers can influence this by devoting resources to district and state attorneys, and passing statutes that guide their behavior. Analyzing prbconv, we see that county 185, which has the highest prbconv, also happens to have highest pctmin80 and wser in the dataset. However, other records with high values of prbconv don't show similar high trends for pctmin80 and wser.  
+**prbpris:** The ratio of convictions with a prison sentence to total convictions, policymakers can influence this by passing statutes that guide the behavior of judges. We find nothing unexpected in the values for prbpris in the dataset.
+**avgsen:** The average sentence in days, policymakers can influence this by passing statutes that influence the behavior of judges, or set min/max sentencing limits. The values are non-zero positive integers, as expected. Considering that serious felonies have longer sentences, the maximum of average sentence of 20.700 days in our dataset, appears on the lighter side, most likely indicating that most incarcerations are for misdemeanors.  As we have not been given information about the type of crimes covered in the data set, we make a note of this and move on.  
+**polpc:** The police per capita, policymakers can influence this through hiring/rationalizing police officers. It has a significant positive skew. Its maximum value for County 115 is an outlier. We have discussed County 115 earlier and continue to keep this record. There is nothing else unexpected. 
+**density:** The number of people per square mile, policymakers can influence this through planning and zoning regulations. We do acknowledge that this influence can be limited as population density also depends upon other factors like employment opportunities, suitable geogrpahical locations, etc. which are outside of short to medium term policy control. We find nothing unexpected in the values for density in dataset.   
+**taxpc:** Tax revenue per capita, policymakers can influence this through adjusting tax rates, or passing statues that promote economic growth in certain areas. We see a positive skew in histogram plot of taxpc. We find nothing unexpected in the values for taxpc in the dataset.   
+**wcon:** Weekly wages for construction, policymakers can influence this through minimum wage laws, or laws that strengthen/weaken union collective bargaining. We find nothing unexpected in the values in the dataset. 
+**wtuc:** Weekly wages for transportation, utilities, and communications, policymakers can influence this through minimum wage laws, or laws that strengthen/weaken union collective bargaining. We find nothing unexpected in the values in dataset.   
+**wtrd:** Weekly wages for wholesale and retail trade, policymakers can influence this through minimum wage laws, or laws that strengthen/weaken union collective bargaining.  We find nothing unexpected in the values in  dataset.  
+**wser:** Weekly wages for the service industry, policymakers can influence this through minimum wage laws, or laws that strengthen/weaken union collective bargaining. This variable has significant positive skew,and the maximum value for wser in County 185 is extremely high. Removing the maximum value, its distribuion is closer to normal. As we don't have more information about what might cause the high value, we have no reason to drop this record. We might come back to it when constructing our population models. 
+**wmfg:** Weekly wages for manufacturing, policymakers can influence this through minimum wage laws, or laws that strengthen/weaken union collective bargaining. We find nothing unexpected in the values.  
+**wsta:** Weekly wages for state governments, policymakers can directly influence this through statutes. We find nothing unexpected in the values in dataset.   
+**wloc:** Weekly wages for local governments, policymakers can directly influence this through statutes. We find nothing unexpected in the values in dataset.   
+**wfed:** Weekly wages for federal government employees, policymakers (at the federal level) have the potential to influence this through statutes. It's slightly negatively skewed. We find nothing unexpected in the values in the dataset.
+
+## Variables Policymakers would be unable to manipulate  
+
+These variables are deemed to be outside the scope of the research question as policymakers cannot easily manipulate them in pursuit of the overarching objective. We look at these variables and find nothing unexpected in the values associated. 
+
+**county:** Policymakers cannot influence geography.
+**year:** Policymakers cannot influence time. We do validate that all records are from year 1987.  
+**west:** Policymakers cannot influence geography.  
+**central:** Policymakers cannot influence geography.  
+**urban:** Policymakers cannot influence geography.  
+**pctmin80:** Policymakers cannot influence demographic distribution (in this case, the percentage of minorities in a county during 1980).  
+**wfir:** Policymakers would generally not influence wages in sectors of finance, insurance and real estate because minimum wage laws are not applicable, and employees within these industries rarely belong to unions.  
+**mix:** Policymakers do not have influence over the nature of a crime committed (face/face versus other kinds).  
+**pctymle:** Policymakers cannot influence demographic distribution (in this case the percentage of young males in a respective county).  
+
+## The Model Building Process 
+
+In constructing models in this report, we proceed under the assumption that crime cannot be explained by one factor alone, but will be influenced by a confleunce of economic, legal, and environmental factors.  Therefore, our modeling will try to capture variables that account for each of the factors, and see which ones policymakers can influence.  
+**Legal** prbarr, prbconv, prbpris, avgsen, polpc, mix.  
+**Environmental** county, density, west, central, urban, pctmin80, pctymle.  
+**Economic** taxpc, wcon, wtuc, wtrd, wfir, wser, wmfg, wsta, wloc, wfed.  
+
+We plot a correlation matrix and pairplots of the variables to explore notable directional relationships. 
+1) crmrte has noticable negative correlation with prbarr, prbconv.
+2) crmrte has strong positive correlation with density, and moderate positive correlation with polpc, taxpc, urban, pctymle, wcon, wtuc, wtrd, wmfg, wfed.
+3) crmrte has weak correlation with prbpris, avgsen, wser, wsta, wloc, county, pctmin80.
+4) Another strong positive correlation is between prbconv and wser. However, this is being driven only by high wser of County 185.  
+5) Among the various predictors, there are no major correlations, indicating no major danger of multicollinearity. We do see marginal positive correlations between density and taxpc, wtrd. And wcon and density. And wloc with wcon, wtrd and wmfg.
+```{r Correlation Matrix}
+plot_correlation(crime2)
+pairs.panels(crime2[,c("crmrte","prbarr", "prbconv", "prbpris", "avgsen", "density")])
+pairs.panels(crime2[,c("crmrte","taxpc", "wcon", "wtuc", "wtrd")])
+pairs.panels(crime2[,c("crmrte","wser", "wmfg", "wsta", "wloc")])
+```
+
+# Regression Models: Base Model
+
+Looking at the plots, and in accordance with our starting assumption that crime is influenced by a combination of legal, environmental and economic factors, we construct our first model with the following variables.   
+1) polpc as our legal factor. The intuition is that higher policing will reduce crime.  
+2) density as our environmental factor.  The intuition is that highly populated areas will have higher crime rates.  
+3) Non governmental wages (wcon, wtuc, wtrd, wfir, wser, wmfg) as our economic factor. We will examine whether these are jointly significant.
+ We perform additional univariate analysis of these variables. 
+ 
+**crmrte :** The distribution of this variable is positively skewed. A logarithmic transformation of crmrte helps, as thinking in terms of percent change is more meaningful. In addition, crmrte is naturally alway positive, with a meaningful zero-point but no obvious maximum. The distribution of log_crmrte is also more normal.
+```{r Examining Crime Rate}
+hist(crime2$crmrte, main="Crime Rate", xlab="crime rate")
+log_crmrte <- log(crime2$crmrte)
+hist(log_crmrte)
+```
+ 
+**density :** We see that density is highly positively skewed, but since taking a logarithmic transformation does not increase normality, we decide to use the variable without transformation.
+```{r Examining Density}
+hist(crime2$density, main="Density", xlab="density")
+log_density <- log(crime2$density)
+hist(log_density)
+```
+ 
+**polpc :** Police per capita is highly positively skewed. Taking a logarithmic transformation increases normality, but does not make intuitive sense since it is already a ratio. We decide to use the variable without transformation.
+```{r Examining Police Per Capita}
+hist(crime2$polpc, main="Police Per Capita", xlab="polpc")
+log_polpc <- log(crime2$polpc)
+hist(log_polpc)
+```
+ 
+**Non governmental wages :** As we are going to check joint signficance of wcon, wtuc, wtrd, wfir, wser, wmfg, we do not need additional analysis other than what has already been done earlier. With the exception of wser, all the other wage variables are normally distributed.
+
+```{r First Model}
+first_model <- lm(log(crime2$crmrte) ~ crime2$polpc + crime2$density 
+                  + crime2$wcon + crime2$wtuc + crime2$wtrd 
+                  + crime2$wfir + crime2$wser + crime2$wmfg)
+
+# Model Fit
+# R-Squared is 45%. 
+summary(first_model)$r.square
+
+# Looking at diagnostic plots and validating assumptions.
+# CLM 1 - Linearity
+# Valid as we have not constrained residuals
+
+# CLM 2 - Random Sampling
+# We do not have any information on how Cornwell and Trumball collected their data, but it is 
+# reasonable to assume that respected academics would have been discerning about the construction 
+# of their data set. There may be clustering present within the data naturally as a result of
+# examining counties; groups of which may cluster according to their own regional characteristics.
+
+# CLM 3 - No Perfect Multicollinearity. 
+# VIF values are low. Assumption is valid.
+vif(first_model)
+
+# CLM 4 - Zero-Conditional Mean (and Exogeneity). 
+# The Residuals versus Fitted plot, is not flat. It moves downwards for both lower and higher ends 
+# of fitted values. Assumption is invalid.The covariances of the independent variables with the 
+# residuals are very close to zero indicating they are likely exogenous.
+plot(first_model, which = 1)
+(cov(crime2$polpc,first_model$residuals))
+(cov(crime2$density,first_model$residuals))
+(cov(crime2$wcon,first_model$residuals))
+(cov(crime2$wtuc,first_model$residuals))
+(cov(crime2$wtrd,first_model$residuals))
+(cov(crime2$wfir,first_model$residuals))
+(cov(crime2$wser,first_model$residuals))
+(cov(crime2$wmfg,first_model$residuals))
+
+# CLM 5 - Homoskedasticity. 
+# The Scale-Location is not flat. It points further away from x-axis, which means we have more 
+# variance. Assumption is invalid.
+# Non-constant error variance does not cause biased estimates, but it does pose problems for 
+# efficiency and the usual formulas for standard errors are inaccurate. Heteroskedasticity can 
+# be addressed by calculating robust standard errors which we will do later. Robust standard 
+# errors do not change the OLS coefficient estimates or solve the inefficiency problem, but do 
+# give more accurate p-values for coefficients.
+plot(first_model, which = 3)
+
+#CLM 6 – Normality of Errors.
+# The observations diverge mariginally from the diagonal line at either end. The histogram 
+# distribution is also approaching but not exactly normal. Assumption is valid.
+# In addition, since we are dealing with a large sample size (>30), it is not critical that 
+# we have normally distributed residuals. Thus, nothing needs to be done to respond to, 
+# and correct for this assumption.
+plot(first_model, which = 2)
+hist(first_model$residuals, breaks = 50)
+
+# Look for Influential Data Points using Residuals vs Leverage Plot.
+# We see an influential data point for County 115. It has a Cook's distance of greater than 1 
+# which is a worrysome amount of influence. We have seen earlier that this county has minimum 
+# crmrte and highest polpc. This by itself doesnt seem to be an issue, and we keep the record.
+plot(first_model, which = 5)
+
+# To address heteroskedasticity, we use robust standard errors.
+coeftest(first_model, vcov = vcovHC)
+vcovHC(first_model)
+summary(first_model)
+```
+
+**Interpreting Model 1**
+- The intuition of our model is that the percent of crime rate will increase along with density, and decrease along with increased police per capita.  The wage coefficients are either close to zero or negative indicating that on balance, higher wages should lead to lower crime rates.  However, only the coefficient on density is statistically and practically significant.  We also perform a joint significance test for all the wage coefficients together (below), which indicates they are not jointly significant.
+- The Adjusted R-Squared metric indicates that our model explains approximately 40% of the variation in the dependent variable.
+- There is no perfect multicollinearity. 
+- Zero-Conditional Mean is invalid, but the weaker assumption of Exogeneity is valid.
+- We used Robust standard errors to counter heteroskedasticity.
+- Normality of Errors assumption is valid.
+- However, only density is statistically significant at 0.1% level, with no pratical significance.
+```{r}
+##### Joint Hypothesis Testing
+linearHypothesis(first_model, c("crime2$wcon = 0", "crime2$wtuc = 0", "crime2$wtrd = 0"
+                                , "crime2$wfir = 0", "crime2$wser = 0", "crime2$wmfg = 0")
+                 , vcov = vcovHC)
+```
+
+# Regression Models: Second Model  
+
+- We keep density from the first model. This time, we square the density as well. The intuition is that crime rates jump up suddenly in higher population densities, so a parabolic model may be better suited. We also add pctymle (percentage of young males). These variables constitues our environmental factors.
+- We remove wages from the first model, and instead use taxpc as our economic factor. The intuition is that higher taxes per capita indicate overall better economic health and resources, which should translate to fewer crimes. This variable constitutes our Economic factor. 
+- We remove polpc fromo the first model.  Instead we use prbconv as our legal factor. The intuition is that higher probability of conviction should deter crimes. This is our legal factor.
+```{r Second Model}
+second_model <- lm(log(crime2$crmrte) ~ crime2$prbconv + poly(crime2$density,2) 
+                   + crime2$pctymle + crime2$taxpc)
+
+# Model Fit
+# R-Squared is 61%. 
+summary(second_model)$r.square
+
+# Looking at diagnostic plots and validating assumptions.
+# CLM 1 - Linearity
+# Valid as we have not constrained residuals
+
+# CLM 2 - Random Sampling
+# We do not have any information on how Cornwell and Trumball collected their data, but it
+# is reasonable to assume that respected academics would have been discerning about the
+# construction of their data set.  There may be clustering present within the data naturally
+# as a result of examining counties; groups of which may cluster according to their own
+# regional characteristics.
+
+# CLM 3 - No Perfect Multicollinearity. 
+# VIF values are low. Assumption is valid.
+vif(second_model)
+
+# CLM 4 - Zero-Conditional Mean (and Exogeneity). 
+# The Residual versus Fitted plot is not flat.  It moves downwards for both lower and higher
+# ends of fitted values. Assumption is invalid.
+# The covariances of the independent variables with the residuals are very close to zero
+# indicating they are likely exogenous.
+plot(second_model, which = 1)
+(cov(crime2$prbconv,second_model$residuals))
+(cov(crime2$density,second_model$residuals))
+(cov(crime2$pctymle,second_model$residuals))
+(cov(crime2$taxpc,second_model$residuals))
+
+# CLM 5 - Homoskedasticity. 
+# The smoothing curve seems to be decreasing slightly on the lower end. However it is nearly
+# flat, so we consider the assumption to be valid.
+# Non-constant error variance does not cause biased estimates, but it does pose problems for
+# efficiency and the usual formulas for standard errors are inaccurate. Heteroskedasticity
+# can be addressed by calculating robust standard errors which we will do later. Robust
+# standard errors do not change the OLS coefficient estimates or solve the inefficiency
+# problem, but do give more accurate p-values.
+plot(second_model, which = 3)
+
+#CLM 6 – Normality of Errors.
+# The observations diverge mariginally from the diagonal line at either end. The histogram
+# distribution is also approximately normal. Assumption is valid.
+# Also, because we are dealing with a large sample size (>30), it is not critical that we
+# have normally distributed residuals. Thus, nothing needs to be done to respond to, and
+# correct for this assumption.
+plot(second_model, which = 2)
+hist(second_model$residuals, breaks = 50)
+
+# Look for Influential Data Points using Residuals vs Leverage Plot.
+# County 119 lies just beyond the dashed border and forms an influential data point.
+# Inspecting the record, there is nothing unexpected. So we continue to keep it.
+plot(second_model, which = 5)
+
+# We still use robust standard errors as a best practice.
+coeftest(second_model, vcov = vcovHC)
+vcovHC(second_model)
+summary(second_model)
+```
+
+**Interpreting Second Model:**  
+- There is no perfect multicollinearity.  
+- Zero-Conditional Mean is invalid, but the weaker assumption of Exogeneity is valid.  
+- We have Homoskedasticity, but we continue to use robust standard errors as best practice.  
+- Normality of Errors assumption is valid.  
+- There are no worrysome influential data points.  
+- The Adjusted R-Squared metric indicates that our model explains 58% of the variation in the dependent variable.  
+- All the independent variables are statistically significant, although tax revenue per capita is less practically significant versus the others.  
+- A 1% increase in the prbability of conviction leads to a 0.40% decrease in the crime rate. An actionable outcome is to improve the rate of convictions.  
+- The sign on density^2 is negative. This is in contrast to our intuition that crimes committed per person decreases as the number of people per square mile increases. It appears that higher population densities may have a higher total number of crimes, but crimes committed per person actually decreases.  
+- A 1% increase in population of young males leads to a 3.5% increase in crime. This has good practical significance. An actionable outcome is to make policies to engage young males constructively in order to reduce crime rates.  
+- A 1% increase in tax revenue per capita leads to a 0.01% increase in crime rate. This is not a practically significant result. 
+
+# Regression Models: Third Model  
+- For our third model, we keep our all variables from the second model, but include a term in the third model which measures the interaction between region and number of police per capita.
+- We previously established that geography is out of the control of policymakers, but this term may indicate that policing is more or less effective in certain areas of the state, and can either influence the number of police officers hired per region, or serve as a means to uncover effective or ineffective policing practices.
+```{r}
+third_model <- lm(log(crime2$crmrte) ~ crime2$prbconv + poly(crime2$density,2) 
+                  + crime2$pctymle + crime2$taxpc 
+                  + (crime2$west*crime2$polpc))
+
+# Model Fit
+# R-Squared is 73%. AIC also falls in each successive model.
+summary(third_model)$r.square
+AIC(first_model)
+AIC(second_model)
+AIC(third_model)
+
+# Looking at diagnostic plots and validating assumptions.
+# CLM 1 - Linearity
+# Valid as we have not constrained residuals
+
+# CLM 2 - Random Sampling
+# We do not have any information on how Cornwell and Trumball collected their data, but it
+# is reasonable to assume that respected academics would have been discerning about the
+# construction of their data set.  There may be clustering present within the data naturally
+# as a result of examining counties; groups of which may cluster according to their own
+# regional characteristics.
+
+# CLM 3 - No Perfect Multicollinearity. 
+# The VIF value for our interaction term is high, showing that there is a good chance it is
+# predicted well by other variables in the model.  Assumption is violated.
+vif(third_model)
+
+# CLM 4 - Zero-Conditional Mean (and Exogeneity). 
+# The Residual versus Fitted plot is close to flat, but small deviations cast doubt on this
+# assumption.  
+# The covariances of the independent variables with the residuals are very close to zero
+# indicating they are likely exogenous.
+plot(third_model, which = 1)
+(cov(crime2$prbconv,third_model$residuals))
+(cov(crime2$density,third_model$residuals))
+(cov(crime2$pctymle,third_model$residuals))
+(cov(crime2$taxpc,third_model$residuals))
+(cov(crime2$west,third_model$residuals))
+(cov(crime2$polpc,third_model$residuals))
+
+# CLM 5 - Homoskedasticity. 
+# The smoothing curve seems to be decreasing slightly on the lower end; this assumption is invalid.
+# Non-constant error variance does not cause biased estimates, but it does pose problems for
+# efficiency and the usual formulas for standard errors are inaccurate. Heteroskedasticity
+# can be addressed by calculating robust standard errors which we will do later. Robust
+# standard errors do not change the OLS coefficient estimates or solve the inefficiency
+# problem, but do give more accurate p-values.
+plot(third_model, which = 3)
+
+#CLM 6 – Normality of Errors.
+# The observations diverge mariginally from the diagonal line at either end. The histogram
+# distribution is approaching normal but is not quite so.
+# However, because we are dealing with a large sample size (>30), it is not critical that we
+# have normally distributed residuals. Thus, nothing needs to be done to respond to, and
+# correct for this assumption.
+plot(third_model, which = 2)
+hist(third_model$residuals, breaks = 50)
+
+# Look for Influential Data Points using Residuals vs Leverage Plot.
+# None of the data points have a Cook's Distance of greater than 1 in the Residuals versus
+# Leverage plot.
+plot(third_model, which = 5)
+
+# We still use robust standard errors as a best practice.
+coeftest(third_model, vcov = vcovHC)
+vcovHC(third_model)
+summary(third_model)
+```
+**Interpreting Third Model:**  
+- The Variance Inflation Factor indicates the interaction term may present a problem with multicollinearity.  Best practice would be to drop it from future specifications.  
+- Zero-Conditional Mean is invalid, but the weaker assumption of Exogeneity is valid.  
+- We do not have Homoskedasticity, and so use robust standard errors as best practice.  
+- Normality of Errors assumption is not quite valid, but our large sample size alleviates concerns here.  
+- There are no worrysome influential data points.  
+- The Adjusted R-Squared metric indicates that our model explains 71% of the variation in the dependent variable.  
+- The west variable and tax revenue per capita variables are not close to statistically significant; best practice would be to drop them from future specifications.  
+- A 1% increase in the prbability of conviction leads to a 0.40% decrease in the crime rate. An actionable outcome is to improve the rate of convictions.  
+- The sign on density^2 is negative. This is in contrast to our intuition that crimes committed per person decreases as the number of people per square mile increases. It appears that higher population densities may have a higher total number of crimes, but crimes committed per person actually decreases.  
+- A 1% increase in population of young males leads to a 3.0% increase in crime. This has good practical significance. An actionable outcome is to make policies to engage young males constructively in order to reduce crime rates.  
+- The coefficient on tax revenue per capita is neither statistically nor practically significant.
+- The coefficient on the west geographical variable is not statistically or practically significant.
+- The coefficient on police per capita has a strong positive statistically and practically significant relationship with the crime rate on this model.  This runs counter to intuition, and may indicate a problem of endogeneity.
+- An increase in police per capita, given that the county is in western NC, leads to a reduction in crime of 0.03%.  This is not practically significant.  In addition, the multicollinearity discussed earlier means we will drop this term.
+```{r Displaying Models}
+se.m1 = coef(summary(first_model))[, "Std. Error"]
+se.m2 = coef(summary(second_model))[, "Std. Error"]
+se.m3 = coef(summary(third_model))[, "Std. Error"]
+stargazer(first_model,second_model,third_model, type = "text",
+title = "Linear Models Predicting Crime Rate",
+se = list(se.m1,se.m2,se.m3), omit.stat=c("f","ser"),
+star.cutoffs = c(0.05, 0.01, 0.001))
+```
+
+# Omitted Variables Discussion:
+
+1) **Prevalence of guns** Our data set does not speak to the prevalence of guns.  Our assumption here is that the prevalence of guns will have a positive relationship with the percentage of young males (delta1 > 0) and a positive relationship with crime rates as well (beta2 >0).  Since the percentage of young males also has a beta > 0 with crime rates, the omission of gun prevalence will bias the coefficient on the percentage of young males away from zero (b2*d1 > 0 and b1> 0).
+2) **Unemployment** Unemployment, a variable not found in our data set, is most likely positively related with crime rates (beta2 positive).  In addition, because unemployment is typically inversely related with wage growth (delta1 negative), which means the product of beta and delta will be negative.  Curiously, wages have a positive relationship with crime rate in this data set, and the combination of (b2*d1 <0) and (b1 > 0) would bias the coefficient on wages toward zero. 
+3) **Percentage of single parent households** Children in single-parent households tend to do more poorly in school and engage in unlawful activity. Single-parent households will most likely have a negative relationship (d1 < 0) with wages.  In addition, because wages have a positive relationship with crime in our data set (b1 > 0), and because we expecte (b2 > 0), that means (b2*d1 < 0) and (b1 > 0), which will bias the coefficient on wages toward zero.
+4) **Education** Individuals with higher education tend to participate less in criminal activities (b2 < 0). An education variable would likely have a positive relationship with wages (d1 > 0), and since the relationship of wages is positive with crime rates in our data set (b1 > 0), that means that (b2*d1 < 0) and (b1 > 0), so the exclusion of an education variable will bias the coefficient on wages toward zero.
+5) **Religious Norms** Religion is likely to have an inverse correlation with density (d1 < 0) as it is less prevalent in large, urban areas.  Density is positively related with crime (b1 > 0), and we hypothesize that religious people will be more predisposed to follow rules, whether they be secular or theological, therefore (b2 < 0).  Therefore since (b2*d1 > 0) and (b1 > 0), the omission of a variable capturing religious norms will bias the density variable away from zero.
+
+# Conclusion
+In conclusion, we examined three models that attempted to understand what factors influence the crime rate.  Our work discovered that there is a statistically and positively practically significant relationship between density and the percentage of young males along with the crime rate.  We also discovered that there is a statistically and negatively practically significant relationship between the probability of conviction and the crime rate.  Other variables examined, including wages, tax revenue per capita, geography, and police per capita did not yield results of practical or statistical significance.
+These results indicate that policymakers should focus their efforts on a combination of environmental and legal remedies.  Namely, they should focus on three things:  
+1) Utilize planning and zoning regulations, along with affordable housing programs to fight overcrowding in urban areas.  
+2) Foster community outreach programs that direct the efforts of young males in a positive direction (athletics/education/community service/mentorship/etc.)  
+3) Devote adequate resources to district and state attorneys, to ensure they have the ability to secure convictions in important cases, in order to serve as an effective legal deterrent to other would-be offenders.
+
+
+
+  
